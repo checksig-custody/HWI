@@ -84,7 +84,7 @@ class btchip:
 				self.scriptBlockLength = 50
 			else:
 				self.scriptBlockLength = 255
-		except:
+		except Exception:
 			pass			
 
 	def getWalletPublicKey(self, path, showOnScreen=False, segwit=False, segwitNative=False, cashAddr=False):
@@ -246,33 +246,36 @@ class btchip:
 		result = {}
 		outputs = None
 		if rawTx is not None:
-			fullTx = bitcoinTransaction(bytearray(rawTx))
-			outputs = fullTx.serializeOutputs()
-			if sendLockTime:
-				#FIXME: check endianness
-				outputs.extend(fullTx.lockTime)
-			if len(donglePath) != 0:
-				apdu = [ self.BTCHIP_CLA, self.BTCHIP_INS_HASH_INPUT_FINALIZE_FULL, 0xFF, 0x00 ]
-				params = []
-				params.extend(donglePath)
-				apdu.append(len(params))
-				apdu.extend(params)
-				response = self.dongle.exchange(bytearray(apdu))
-			offset = 0
-			while (offset < len(outputs)):
-				blockLength = self.scriptBlockLength
-				if ((offset + blockLength) < len(outputs)):
-					dataLength = blockLength
-					p1 = 0x00
-				else:
-					dataLength = len(outputs) - offset
-					p1 = 0x80
-				apdu = [ self.BTCHIP_CLA, self.BTCHIP_INS_HASH_INPUT_FINALIZE_FULL, \
-					p1, 0x00, dataLength ]
-				apdu.extend(outputs[offset : offset + dataLength])
-				response = self.dongle.exchange(bytearray(apdu))
-				offset += dataLength
-			alternateEncoding = True
+			try:
+				fullTx = bitcoinTransaction(bytearray(rawTx))
+				outputs = fullTx.serializeOutputs()
+				if sendLockTime:
+					#FIXME: check endianness
+					outputs.extend(fullTx.lockTime)
+				if len(donglePath) != 0:
+					apdu = [ self.BTCHIP_CLA, self.BTCHIP_INS_HASH_INPUT_FINALIZE_FULL, 0xFF, 0x00 ]
+					params = []
+					params.extend(donglePath)
+					apdu.append(len(params))
+					apdu.extend(params)
+					response = self.dongle.exchange(bytearray(apdu))
+				offset = 0
+				while (offset < len(outputs)):
+					blockLength = self.scriptBlockLength
+					if ((offset + blockLength) < len(outputs)):
+						dataLength = blockLength
+						p1 = 0x00
+					else:
+						dataLength = len(outputs) - offset
+						p1 = 0x80
+					apdu = [ self.BTCHIP_CLA, self.BTCHIP_INS_HASH_INPUT_FINALIZE_FULL, \
+						p1, 0x00, dataLength ]
+					apdu.extend(outputs[offset : offset + dataLength])
+					response = self.dongle.exchange(bytearray(apdu))
+					offset += dataLength
+				alternateEncoding = True
+			except Exception as e:
+				raise e
 		if not alternateEncoding:
 			apdu = [ self.BTCHIP_CLA, self.BTCHIP_INS_HASH_INPUT_FINALIZE, 0x02, 0x00 ]
 			params = []
