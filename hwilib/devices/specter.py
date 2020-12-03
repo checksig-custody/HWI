@@ -19,7 +19,7 @@ from ..serializations import PSBT
 class SpecterClient(HardwareWalletClient):
 
     # timeout large enough to handle xpub derivations
-    TIMEOUT = 3
+    TIMEOUT = 30
 
     def __init__(self, path: str, password: str = "", expert: bool = False) -> None:
         super().__init__(path, password, expert)
