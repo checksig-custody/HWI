@@ -14,6 +14,7 @@ from authproxy import AuthServiceProxy, JSONRPCException
 from hwilib.base58 import xpub_to_pub_hex
 from hwilib.cli import process_commands
 from hwilib.descriptor import AddChecksum
+from hwilib.key import KeyOriginInfo
 from hwilib.serializations import PSBT
 
 SUPPORTS_MS_DISPLAY = {'trezor_1', 'keepkey', 'coldcard', 'trezor_t'}
@@ -54,7 +55,9 @@ def start_bitcoind(bitcoind_path):
             pass
 
     # Make sure there are blocks and coins available
-    rpc.generatetoaddress(101, rpc.getnewaddress())
+    rpc.createwallet(wallet_name="supply")
+    wrpc = AuthServiceProxy('http://{}@127.0.0.1:18443/wallet/supply'.format(userpass))
+    wrpc.generatetoaddress(101, wrpc.getnewaddress())
     return (rpc, userpass)
 
 class DeviceTestCase(unittest.TestCase):
@@ -121,7 +124,7 @@ class DeviceTestCase(unittest.TestCase):
         wallet_name = '{}_{}_test'.format(self.full_type, self.id())
         self.rpc.createwallet(wallet_name=wallet_name, disable_private_keys=True, descriptors=True)
         self.wrpc = AuthServiceProxy('http://{}@127.0.0.1:18443/wallet/{}'.format(self.rpc_userpass, wallet_name))
-        self.wpk_rpc = AuthServiceProxy('http://{}@127.0.0.1:18443/wallet/'.format(self.rpc_userpass))
+        self.wpk_rpc = AuthServiceProxy('http://{}@127.0.0.1:18443/wallet/supply'.format(self.rpc_userpass))
 
     def setUp(self):
         self.emulator.start()
@@ -289,9 +292,9 @@ class TestSignTx(DeviceTestCase):
             # Single input PSBTs will be fully signed by first signer
             for psbt_input in first_psbt.inputs[1:]:
                 for pubkey, path in psbt_input.hd_keypaths.items():
-                    psbt_input.hd_keypaths[pubkey] = [0] + path[1:]
+                    psbt_input.hd_keypaths[pubkey] = KeyOriginInfo(b"\x00\x00\x00\x00", path.path)
             for pubkey, path in second_psbt.inputs[0].hd_keypaths.items():
-                second_psbt.inputs[0].hd_keypaths[pubkey] = [0] + path[1:]
+                second_psbt.inputs[0].hd_keypaths[pubkey] = KeyOriginInfo(b"\x00\x00\x00\x00", path.path)
 
             single_input = len(first_psbt.inputs) == 1
 

@@ -5,5 +5,6 @@ __all__ = [
     'digitalbitbox',
     'coldcard',
     'specter',
-    'checksig'
+    'checksig',
+    'bitbox02',
 ]
