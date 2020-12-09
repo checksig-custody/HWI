@@ -51,6 +51,9 @@ class HardwareWalletClient(object):
     def sign_tx(self, psbt: Union[PSBT, str, bytes]) -> Dict[str, str]:
         """Sign a partially signed bitcoin transaction (PSBT).
 
+        Accept an encoded Base64 PSBT (as both str and bytes)
+        or a PSBT object.
+
         Return {"psbt": <base64 psbt string>}.
         """
         raise NotImplementedError("The HardwareWalletClient base class "

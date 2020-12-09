@@ -359,12 +359,7 @@ class Bitbox02Client(HardwareWalletClient):
 
     @bitbox02_exception
     def sign_tx(self, psbt: Union[PSBT, str, bytes]) -> Dict[str, str]:
-
-        if isinstance(psbt, bytes):
-            psbt = psbt.decode('ascii')
-        if isinstance(psbt, str):
-            # if deserialize was a @classmethod this should be just one line
-            # psbt = PSBT.deserialize(psbt)
+        if isinstance(psbt, (str, bytes)):
             psbt2 = PSBT()
             psbt2.deserialize(psbt)
             psbt = psbt2
