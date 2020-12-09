@@ -51,7 +51,17 @@ class SpecterClient(HardwareWalletClient):
         else:
             return {"xpub": xpub_test_2_main(xpub)}
 
-    def sign_tx(self, psbt: PSBT) -> Dict[str, str]:
+    def sign_tx(self, psbt: Union[PSBT, str, bytes]) -> Dict[str, str]:
+
+        if isinstance(psbt, bytes):
+            psbt = psbt.decode('ascii')
+        if isinstance(psbt, str):
+            # if deserialize was a @classmethod this should be just one line
+            # psbt = PSBT.deserialize(psbt)
+            psbt2 = PSBT()
+            psbt2.deserialize(psbt)
+            psbt = psbt2
+
         # this one can hang for quite some time
         response = self.query("sign %s" % psbt.serialize())
         signed_psbt = PSBT()
