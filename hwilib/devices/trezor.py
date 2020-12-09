@@ -50,6 +50,7 @@ from ..key import (
 )
 from ..serializations import (
     CTxOut,
+    PSBT,
     is_p2pkh,
     is_p2sh,
     is_p2wsh,
@@ -184,7 +185,17 @@ class TrezorClient(HardwareWalletClient):
     # Must return a hex string with the signed transaction
     # The tx must be in the psbt format
     @trezor_exception
-    def sign_tx(self, tx):
+    def sign_tx(self, psbt: Union[PSBT, str, bytes]) -> Dict[str, str]:
+
+        if isinstance(psbt, bytes):
+            psbt = psbt.decode('ascii')
+        if isinstance(psbt, str):
+            # if deserialize was a @classmethod this should be just one line
+            # psbt = PSBT.deserialize(psbt)
+            psbt2 = PSBT()
+            psbt2.deserialize(psbt)
+            psbt = psbt2
+
         self._check_unlocked()
 
         # Get this devices master key fingerprint
