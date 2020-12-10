@@ -1,3 +1,4 @@
+import os
 import socket
 from typing import Optional
 
@@ -10,7 +11,10 @@ def ipc_connect(port: int) -> Optional[socket.socket]:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         # we use a very short timeout for connection in this way we are very fast to enumerate (especially on Windows)
-        sock.settimeout(0.5)
+        if os.name == "nt":
+            sock.settimeout(1)
+        else:
+            sock.settimeout(None)
 
         sock.connect(("127.0.0.1", port))
 
