@@ -7,6 +7,7 @@ from ..serializations import PSBT
 from .checksiglib.ipc import ipc_connect, ipc_send_and_get_response
 from .checksiglib.ipc_message import PING, SIGN_MESSAGE, SIGN_TX, XPUB, IpcMessage
 from .checksiglib.settings import LISTEN_PORT, PORT_RANGE
+from hwilib.base58 import xpub_main_2_test
 
 
 class ChecksigClient(HardwareWalletClient):
@@ -87,6 +88,10 @@ class ChecksigClient(HardwareWalletClient):
             raise ActionCanceledError("CheckSig device did not return pubkey at bip32_path")
 
         xpub = base64.b64decode(resp.get_raw_value()).decode("utf-8")
+
+        if self.is_testnet:
+            xpub = xpub_main_2_test(xpub)
+
         return {"xpub": xpub}
 
 
