@@ -20,15 +20,6 @@ from .jade_tcp import JadeTCPImpl
 logger = logging.getLogger(__name__)
 device_logger = logging.getLogger(f"{__name__}-device")
 
-# BLE comms backend is optional
-# It relies on the BLE dependencies being available
-try:
-    from .jade_ble import JadeBleImpl
-except ImportError as e:
-    logger.warning(e)
-    logger.warning('BLE scanning/connectivity will not be available')
-
-
 # Default serial connection
 DEFAULT_SERIAL_DEVICE = '/dev/ttyUSB0'
 DEFAULT_BAUD_RATE = 115200
