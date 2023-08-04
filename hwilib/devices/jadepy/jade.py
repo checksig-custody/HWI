@@ -1785,11 +1785,11 @@ class JadeInterface:
                     try:
                         response = message["log"].decode("utf-8")
                         log_methods = {
-                            "E": device_logger.error,
-                            "W": device_logger.warning,
-                            "I": device_logger.info,
-                            "D": device_logger.debug,
-                            "V": device_logger.debug,
+                            'E': device_logger.error,
+                            'W': device_logger.warning,
+                            'I': device_logger.info,
+                            'D': device_logger.debug,
+                            'V': device_logger.debug,
                         }
                         if len(response) > 1 and response[1] == " ":
                             lvl = response[0]
