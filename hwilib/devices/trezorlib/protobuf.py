@@ -223,7 +223,7 @@ class MessageType(metaclass=_MessageTypeMeta):
                 if field.repeated:
                     default = []
                 elif field.required:
-                    warnings.warning(
+                    warnings.warn(
                         f"Value of required field '{field.name}' must be provided in constructor",
                         DeprecationWarning,
                         stacklevel=2,
