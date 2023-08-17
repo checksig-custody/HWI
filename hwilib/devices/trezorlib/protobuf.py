@@ -198,7 +198,7 @@ class MessageType(metaclass=_MessageTypeMeta):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         if args:
-            warnings.warning(
+            warnings.warn(
                 "Positional arguments for MessageType are deprecated",
                 DeprecationWarning,
                 stacklevel=2,
