@@ -20,7 +20,7 @@ from .checksighwe.settings import Settings
 
 
 class ChecksigClient(HardwareWalletClient):
-    """Extend the HardwareWalletClient forCheckSig HWE."""
+    """Extend the HardwareWalletClient for CheckSig HWE."""
 
     def __init__(self, path: str, password: str = "", expert: bool = False) -> None:
         super().__init__(path, password, expert)
