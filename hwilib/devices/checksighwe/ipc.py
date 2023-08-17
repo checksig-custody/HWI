@@ -15,7 +15,17 @@ _DEVICE_CONNECTION_ERROR_MSG = "Unable to open a socket with the CheckSig HWE"
 
 
 def ipc_connect(port: int) -> socket:
-    """Connect to the service wallet."""
+    """Connect to the service wallet.
+
+    Args:
+        port (int): _description_
+
+    Raises:
+        DeviceConnectionError: _description_
+
+    Returns:
+        socket: _description_
+    """
     try:
         sock = socket(AF_INET, SOCK_STREAM)
         if os.name == "nt":  # pragma: no cover
