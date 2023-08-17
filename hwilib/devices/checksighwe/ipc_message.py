@@ -15,9 +15,9 @@ ECDSA_SIGN = "dsas"
 class IpcMessage:
     """Class that represents an ipc message.
 
-    An ipc message is command with a raw data payload- For serialization
-    capability the data payload is always a string, so use base64
-    encoding for binary data
+    An ipc message is command with a raw data payload.
+    For serialization the data payload is always a string,
+    so use base64 encoding for binary data
     """
 
     def __init__(self, cmd: str, data: str):
