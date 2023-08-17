@@ -1,19 +1,27 @@
+"""
+CheckSig HWE Devices
+************************
+"""
+
+from __future__ import annotations
+
 import base64
-from typing import Dict, Union
+from typing import Any
 
-from hwilib.key import ExtendedKey
-
-from ..errors import ActionCanceledError, DeviceConnectionError
-from ..hwwclient import HardwareWalletClient
-from hwilib.psbt import PSBT
-from checksighwe.ipc import ipc_connect, ipc_send_and_get_response
-from checksighwe.ipc_message import PING, SIGN_MESSAGE, SIGN_TX, XPUB, IpcMessage
-from checksighwe.settings import Settings
 from hwilib._base58 import xpub_main_2_test
 from hwilib.common import Chain
+from hwilib.key import ExtendedKey
+from hwilib.psbt import PSBT
+
+from ..hwwclient import HardwareWalletClient
+from .checksighwe.ipc import ipc_connect, ipc_send_read
+from .checksighwe.ipc_message import PING, SIGN_MESSAGE, SIGN_TX, XPUB
+from .checksighwe.settings import Settings
 
 
 class ChecksigClient(HardwareWalletClient):
+    """Extend the HardwareWalletClient forCheckSig HWE."""
+
     def __init__(self, path: str, password: str = "", expert: bool = False) -> None:
         super().__init__(path, password, expert)
         # Used to know where to connect for this device
@@ -21,103 +29,64 @@ class ChecksigClient(HardwareWalletClient):
 
     # Segwit V0 only
     def sign_tx(self, psbt: PSBT) -> PSBT:
-
         sock = ipc_connect(self.port)
-
-        if sock is None:
-            raise DeviceConnectionError(
-                "Unable to open a tcp socket with the CheckSig device"
-            )
-
-        serialized_psbt = psbt.serialize()
-        data = serialized_psbt + "\n"
-        msg = IpcMessage(SIGN_TX, data)
-
-        resp = ipc_send_and_get_response(sock, msg)
-
-        if resp is None:
-            raise ActionCanceledError("CheckSig device did not sign tx")
-
+        data = psbt.serialize() + "\n"
+        response = ipc_send_read(sock, SIGN_TX, data)
         psbt = PSBT()
-        psbt.deserialize(resp.get_raw_value())
+        psbt.deserialize(response.data)
         return psbt
 
-    def sign_message(self, message: Union[str, bytes], bip32_path: str) -> str:
+    def sign_message(self, message: str | bytes, bip32_path: str) -> str:
         if isinstance(message, str):
             message = message.encode()
         sock = ipc_connect(self.port)
-
-        if sock is None:
-            raise DeviceConnectionError(
-                "Unable to open a tcp socket with the CheckSig device"
-            )
-
         message_b64 = base64.b64encode(message).decode("utf-8")
         data = message_b64 + "\n" + bip32_path
-        msg = IpcMessage(SIGN_MESSAGE, data)
+        response = ipc_send_read(sock, SIGN_MESSAGE, data)
+        return base64.b64decode(response.data).decode()
 
-        resp = ipc_send_and_get_response(sock, msg)
-
-        if resp is None:
-            raise ActionCanceledError("CheckSig device did not sign message")
-
-        return base64.b64decode(resp.get_raw_value()).decode()
-
-    def close(self):
+    def close(self) -> None:
         pass
 
     def get_pubkey_at_path(self, bip32_path: str) -> ExtendedKey:
         sock = ipc_connect(self.port)
-
-        if sock is None:
-            raise DeviceConnectionError(
-                "Unable to open a tcp socket with the checksig device"
-            )
-
         data = bip32_path + "\n"
-        msg = IpcMessage(XPUB, data)
-        resp = ipc_send_and_get_response(sock, msg)
-        if resp is None:
-            raise ActionCanceledError(
-                "CheckSig device did not return pubkey at bip32_path"
-            )
-
-        xpub = base64.b64decode(resp.get_raw_value()).decode("utf-8")
-
+        response = ipc_send_read(sock, XPUB, data)
+        xpub = base64.b64decode(response.data).decode("utf-8")
         if self.chain != Chain.MAIN:
             xpub = xpub_main_2_test(xpub)
-
         return ExtendedKey.deserialize(xpub)
 
+    def wipe_device(self) -> bool:
+        raise NotImplementedError("CheckSig HWE does not implement this method")
 
-def enumerate(password: str = "", expert: bool = False, chain: Chain = Chain.MAIN):
-    results = []
+    def setup_device(self, _: str = "", __: str = "") -> bool:
+        raise NotImplementedError("CheckSig HWE does not implement this method")
 
-    # Loop on the range port to check listening devices
+    def restore_device(self, _: str = "", __: int = 24) -> bool:
+        raise NotImplementedError("CheckSig HWE does not implement this method")
+
+    def backup_device(self, _: str = "", __: str = "") -> bool:
+        raise NotImplementedError("CheckSig HWE does not implement this method")
+
+
+def enumerate(  # pylint: disable=redefined-builtin
+    _: str = "", __: bool = False, ___: Chain = Chain.MAIN
+) -> list[dict[str, Any]]:
+    """Return a list of CheckSig HWEs."""
+    devices = []
     for i in range(Settings.port_range):
-        try:
-            port = Settings.listen_port + i
-            sock = ipc_connect(port)
-
-            if sock is None:
-                continue
-
-            ping_resp = ipc_send_and_get_response(sock, IpcMessage(PING, ""))
-            if ping_resp is None:
-                continue
-
-            d_data = {
-                "type": "checksig",
-                "model": "checksig_hwi",
-                "path": "127.0.0.1:" + str(port),
-                "needs_pin_sent": False,
-                "needs_passphrase_sent": False,
-                "fingerprint": ping_resp.get_raw_value(),
-            }
-            results.append(d_data)
-
-            sock.close()
-        except Exception:
-            continue
-
-    return results
+        port = Settings.first_port + i
+        sock = ipc_connect(port)
+        response = ipc_send_read(sock, PING, "")
+        device = {
+            "type": "checksig",
+            "model": "checksig_hwe",
+            "path": f"127.0.0.1:{str(port)}",
+            "needs_pin_sent": False,
+            "needs_passphrase_sent": False,
+            "fingerprint": response.data,
+        }
+        devices.append(device)
+        sock.close()
+    return devices
