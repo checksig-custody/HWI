@@ -4,14 +4,25 @@ from __future__ import annotations
 
 import contextlib
 import os
+from dataclasses import dataclass
 from socket import AF_INET, SO_REUSEADDR, SOCK_STREAM, SOL_SOCKET, socket
 
-from hwilib.errors import ActionCanceledError, DeviceConnectionError
+SIGN_TX = "SIGN_TX"
+SIGN_MSG = "SIGN_MSG"
+RESPONSE = "RESPONSE"
+FNGRPRNT = "FNGRPRNT"
+STOP = "STOP"
+GET_XPUB = "GET_XPUB"
+IpcMessage = tuple[str, str]
 
-from .ipc_message import IpcMessage
-from .settings import Settings
 
-_DEVICE_CONNECTION_ERROR_MSG = "Unable to open a socket with the CheckSig HWE"
+@dataclass
+class PortSettings:
+    """Class for port management."""
+
+    first_port: int = 4444
+    port_range: int = 100
+    last_used_port = 4443
 
 
 def ipc_connect(port: int) -> socket:
@@ -26,83 +37,75 @@ def ipc_connect(port: int) -> socket:
     Returns:
         socket: _description_
     """
-    try:
-        sock = socket(AF_INET, SOCK_STREAM)
-        if os.name == "nt":  # pragma: no cover
-            # very short timeout for connection
-            # to enumerate very fast (especially on Windows)
-            sock.settimeout(1)
-            sock.connect(("127.0.0.1", port))
-            # If connection succeeded remove the timeout
-            sock.settimeout(None)
-        else:
-            sock.connect(("127.0.0.1", port))
-    except Exception as err:
-        raise DeviceConnectionError(_DEVICE_CONNECTION_ERROR_MSG) from err
-    return sock
+    conn_sock = socket(AF_INET, SOCK_STREAM)
+    if os.name == "nt":  # pragma: no cover
+        # very short timeout for connection_socket
+        # to enumerate very fast (especially on Windows)
+        conn_sock.settimeout(1)
+        conn_sock.connect(("127.0.0.1", port))
+        # If connection_socket succeeded remove the timeout
+        conn_sock.settimeout(None)
+    else:
+        conn_sock.connect(("127.0.0.1", port))
+    return conn_sock
 
 
-def ipc_start() -> tuple[int, socket]:
-    """Start the service wallet in listening mode."""
-    # Create a socket
-    sock = socket(AF_INET, SOCK_STREAM)
-    # On windows don't use reuseaddress otherwise processes will listen on the same socket
+HostPortAddress = tuple[str, int]
+
+
+def ipc_bind_listen() -> tuple[tuple[str, int], socket]:
+    """Return a listening socket."""
+    listening_socket = socket(AF_INET, SOCK_STREAM)
     if os.name != "nt":
-        sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-    # Bind the socket to the port
-    # Look for a free port on the range
-    min_port = Settings.last_used_port + 1
-    max_port = Settings.first_port + Settings.port_range
-    port = 0  # just to make Pylance happy
+        # Do not reuseaddress otherwise processes will listen on the same socket
+        listening_socket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+    # Look for a free port in the range to bind the listening_socket to
+    min_port = PortSettings.last_used_port + 1
+    max_port = PortSettings.first_port + PortSettings.port_range
+    host_port = "127.0.0.1", max_port  # just to make Pylance happy
     for port in range(min_port, max_port):
+        host_port = "127.0.0.1", port
         with contextlib.suppress(OSError):
-            sock.bind(("127.0.0.1", port))
-            sock.listen(1)
+            listening_socket.bind(host_port)
+            listening_socket.listen(1)
             break
-    Settings.last_used_port = port
-    return (port, sock)
+    if host_port[1] == max_port:
+        raise RuntimeError("exausted ports")  # pragma: no cover
+    PortSettings.last_used_port = host_port[1]
+    return host_port, listening_socket
 
 
-def ipc_read(sock: socket) -> IpcMessage:  # pragma: no cover used by HWI
+def ipc_recv(conn_sock: socket) -> IpcMessage:
     """Read an IPC message from the socket.
 
     IPC messages are in TLV format:
-    [type: 4 bytes | payload_size: 8 bytes | payload: payload_size bytes]
+    [type: 8 bytes | payload_size: 8 bytes | payload: payload_size bytes]
     The payload is always as text
 
     Args:
         sock (socket.socket): _description_
 
     Returns:
-        IpcMessage | None: _description_
+        IpcMessage: _description_
     """
-    # get the type
-    cmd = sock.recv(IpcMessage.cmd_msg_size()).decode("utf-8")
-    cmd = cmd.strip().replace(" ", "")
+    type_and_payload_size = conn_sock.recv(16).decode("utf-8")
+    cmd = type_and_payload_size[:8].strip()
+    payload_size = int(type_and_payload_size[8:].strip())
 
-    # get the size
-    size = sock.recv(IpcMessage.get_size_msg_size()).decode("utf-8")
-    size = size.strip().replace(" ", "")
+    data = b""
+    while payload_size:
+        data_ = conn_sock.recv(min(payload_size, 2**15))
+        payload_size -= len(data_)
+        data += data_
 
-    if len(size) == 0:
-        raise RuntimeError("unexpected error")
-
-    # read the payload
-    int_size = int(size)
-    value = b""
-    while int_size:
-        data = sock.recv(min(int_size, 2**15))
-        int_size -= len(data)
-        value += data
-
-    return IpcMessage(cmd, str(value.decode("utf-8")))
+    return cmd, data.decode("utf-8")
 
 
-def ipc_send(sock: socket, msg: IpcMessage) -> None:
+def ipc_sendall(conn_sock: socket, msg: IpcMessage) -> None:
     """Send an IPC message through the socket.
 
     IPC messages are in TLV format:
-    [type: 4 bytes | payload_size: 8 bytes | payload: payload_size bytes]
+    [type: 8 bytes | payload_size: 8 bytes | payload: payload_size bytes]
     The payload is always as text
 
     Args:
@@ -112,38 +115,5 @@ def ipc_send(sock: socket, msg: IpcMessage) -> None:
     Returns:
         bool: _description_
     """
-    # serialize the type
-    cmd = msg.cmd.ljust(IpcMessage.cmd_msg_size())
-
-    # serialize the size
-    size = len(msg.data)
-    str_size = str(size).ljust(IpcMessage.get_size_msg_size())
-
-    # serialize the payload and send all
-    complete = cmd + str_size + msg.data
-    sock.sendall(str.encode(complete))
-
-
-def ipc_send_read(
-    sock: socket, cmd: str, data: str
-) -> IpcMessage:  # pragma: no cover used by HWI
-    """Send an IPC message and read the response.
-
-    Args:
-        sock (socket): _description_
-        cmd (str): _description_
-        data (str): _description_
-
-    Raises:
-        ActionCanceledError: _description_
-
-    Returns:
-        IpcMessage: _description_
-    """
-    try:
-        ipc_send(sock, IpcMessage(cmd, data))
-        response = ipc_read(sock)
-    except Exception as err:
-        err_msg = f"CheckSig HWE error {cmd=} {data=} {sock=}"
-        raise ActionCanceledError(err_msg) from err
-    return response
+    text = msg[0].ljust(8) + str(len(msg[1])).ljust(8) + msg[1]
+    conn_sock.sendall(text.encode("utf-8"))
