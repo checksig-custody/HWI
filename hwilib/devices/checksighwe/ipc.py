@@ -6,7 +6,6 @@ import base64
 import contextlib
 import socket
 from collections.abc import Callable
-from dataclasses import dataclass
 
 from hwilib._base58 import xpub_main_2_test
 from hwilib.common import Chain
@@ -22,23 +21,12 @@ RESPONSE = "RESPONSE"
 # e.g., (GET_XPUB, "m/44h/0h/0h")
 IpcMessage = tuple[str, str]
 
-# e.g., ("127.0.0.1", 4444)
-HostPortAddress = tuple[str, int]
-
-
-@dataclass
-class PortSettings:
-    """Class for port management."""
-
-    first_port: int = 4444
-    next_port: int = 4444
-
 
 def enum_port_fingerprint() -> list[tuple[int, str]]:
     """Return a list of HWE port, fingerprint tuples."""
     result: list[tuple[int, str]] = []
-    for port in range(PortSettings.first_port, PortSettings.next_port):
-        with contextlib.suppress(ConnectionRefusedError):
+    for port in range(4444, 4544):
+        with contextlib.suppress(ConnectionRefusedError, ConnectionResetError):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as conn_sock:
                 conn_sock.connect(("127.0.0.1", port))
                 ipc_sendall(conn_sock, (FNGRPRNT, ""))
