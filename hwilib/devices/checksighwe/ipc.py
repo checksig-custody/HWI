@@ -22,16 +22,16 @@ RESPONSE = "RESPONSE"
 IpcMessage = tuple[str, str]
 
 
-def enum_port_fingerprint() -> list[tuple[int, str]]:
-    """Return a list of HWE port, fingerprint tuples."""
-    result: list[tuple[int, str]] = []
+def enum_fingerprint_port(host: str = "127.0.0.1") -> list[tuple[str, int]]:
+    """Return a list of HWE (fingerprint, port) tuples."""
+    result: list[tuple[str, int]] = []
     for port in range(4444, 4544):
         with contextlib.suppress(ConnectionRefusedError, ConnectionResetError):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as conn_sock:
-                conn_sock.connect(("127.0.0.1", port))
+                conn_sock.connect((host, port))
                 ipc_sendall(conn_sock, (FNGRPRNT, ""))
                 response = ipc_recv(conn_sock, check_response=True)
-            result.append((port, response[1]))
+            result.append((response[1], port))
     return result
 
 

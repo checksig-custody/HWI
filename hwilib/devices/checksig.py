@@ -72,5 +72,5 @@ def enumerate(  # pylint: disable=redefined-builtin
             "needs_passphrase_sent": False,
             "fingerprint": fingerprint,
         }
-        for port, fingerprint in ipc.enum_port_fingerprint()
+        for fingerprint, port in ipc.enum_fingerprint_port()
     ]
