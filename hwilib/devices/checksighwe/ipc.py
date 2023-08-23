@@ -1,3 +1,10 @@
+#!/usr/bin/env python3
+
+# Copyright (C) CheckSig S.r.l. - All Rights Reserved
+# Unauthorized copying of this file, via any medium is strictly prohibited
+# Proprietary and confidential
+# www.checksig.com
+
 """HWI and IPC functions."""
 
 from __future__ import annotations
