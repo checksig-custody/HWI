@@ -25,6 +25,10 @@ SIGN_TX = "SIGN_TX"
 SIGN_MSG = "SIGN_MSG"
 RESPONSE = "RESPONSE"
 
+HOST: str = "127.0.0.1"
+FIRST_PORT: int = 4444
+MAX_PORT: int = 4544
+
 # e.g., (GET_XPUB, "m/44h/0h/0h")
 IpcMessage = tuple[str, str]
 
@@ -32,14 +36,27 @@ IpcMessage = tuple[str, str]
 def enum_fingerprint_port(host: str = "127.0.0.1") -> list[tuple[str, int]]:
     """Return a list of HWE (fingerprint, port) tuples."""
     result: list[tuple[str, int]] = []
-    for port in range(4444, 4544):
-        with contextlib.suppress(ConnectionRefusedError, ConnectionResetError):
+    for port in range(FIRST_PORT, MAX_PORT):
+        with contextlib.suppress(
+            ConnectionRefusedError,  # possibly raised by connect
+            ConnectionResetError,  # possibly raised by connect
+            MalformedResponse,  # possibly raised by ipc_recv
+            InvalidPayloadSize,  # possibly raised by ipc_recv
+        ):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as conn_sock:
                 conn_sock.connect((host, port))
                 ipc_sendall(conn_sock, (FNGRPRNT, ""))
                 response = ipc_recv(conn_sock, check_response=True)
             result.append((response[1], port))
     return result
+
+
+class MalformedResponse(RuntimeError):
+    """To be raised if the command is not RESPONSE."""
+
+
+class InvalidPayloadSize(RuntimeError):
+    """To be raised if the payload size is not an int."""
 
 
 def ipc_recv(conn_sock: socket.socket, check_response: bool = False) -> IpcMessage:
@@ -49,20 +66,31 @@ def ipc_recv(conn_sock: socket.socket, check_response: bool = False) -> IpcMessa
     data = conn_sock.recv(16)
     # conn_sock.settimeout(timeout_)
 
-    type_and_payload_size = data.decode("utf-8")
-    if (cmd := type_and_payload_size[:8].strip()) != RESPONSE and check_response:
-        raise RuntimeError(f"malformed response {cmd=}")  # pragma: no cover
-    payload_size = int(type_and_payload_size[8:].strip())
+    type_and_payload_len = data.decode("utf-8")
+
+    if (cmd := type_and_payload_len[:8].strip()) != RESPONSE and check_response:
+        raise MalformedResponse(f"malformed response {cmd=}")  # pragma: no cover
+
+    payload_len = type_and_payload_len[8:].strip()
+    try:
+        payload_len_as_int = int(payload_len)
+    except ValueError as err:  # pragma: no cover
+        raise InvalidPayloadSize(f"{payload_len=} is not an int") from err
 
     data = b""
-    while to_be_received := payload_size - len(data):
+    while to_be_received := payload_len_as_int - len(data):
         data += conn_sock.recv(min(to_be_received, 2**15))
     return cmd, data.decode("utf-8")
 
 
 def ipc_sendall(conn_sock: socket.socket, msg: IpcMessage) -> None:
     """Send an IPC message through the socket."""
-    text = msg[0].ljust(8) + str(len(msg[1])).ljust(8) + msg[1]
+    if len(cmd := msg[0]) > 8:
+        raise RuntimeError(f"invalid {cmd=}")  # pragma: no cover
+    data = msg[1]
+    if (data_len := len(data)) > 99_99_99_99:
+        raise RuntimeError(f"invalid {data=}")  # pragma: no cover
+    text = cmd.ljust(8) + str(data_len).ljust(8) + data
     conn_sock.sendall(text.encode("utf-8"))
 
 

@@ -67,7 +67,7 @@ def enumerate(  # pylint: disable=redefined-builtin
         {
             "type": "checksig",
             "model": f"hwe {__version__}",
-            "path": f"127.0.0.1:{str(port)}",
+            "path": f"{ipc.HOST}:{str(port)}",
             "needs_pin_sent": False,
             "needs_passphrase_sent": False,
             "fingerprint": fingerprint,
