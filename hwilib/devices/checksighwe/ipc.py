@@ -26,8 +26,8 @@ SIGN_MSG = "SIGN_MSG"
 RESPONSE = "RESPONSE"
 
 HOST: str = "127.0.0.1"
-FIRST_PORT: int = 4444
-MAX_PORT: int = 4544
+FIRST_PORT: int = 45000
+MAX_PORT: int = FIRST_PORT + 100
 
 # e.g., (GET_XPUB, "m/44h/0h/0h")
 IpcMessage = tuple[str, str]
