@@ -21,6 +21,20 @@ class TestEnumerateSignature(unittest.TestCase):
                 args = [a.arg for a in funcs[0].args.args]
                 self.assertEqual(args, ["password", "expert", "chain", "allow_emulators"])
 
+    def test_every_device_client_takes_chain(self):
+        # commands.get_client passes path, password, expert and chain to each client class.
+        for dev in DEVICES:
+            with self.subTest(device=dev):
+                with open(os.path.join(DEVICES_DIR, dev + ".py")) as f:
+                    tree = ast.parse(f.read())
+                clients = [n for n in tree.body if isinstance(n, ast.ClassDef) and n.name.endswith("Client")
+                           and any(getattr(b, "id", None) == "HardwareWalletClient" for b in n.bases)]
+                if not clients:
+                    continue  # subclasses another device's client, such as keepkey of trezor
+                inits = [n for n in clients[0].body if isinstance(n, ast.FunctionDef) and n.name == "__init__"]
+                args = [a.arg for a in inits[0].args.args]
+                self.assertEqual(args[:5], ["self", "path", "password", "expert", "chain"])
+
 
 if __name__ == "__main__":
     unittest.main()

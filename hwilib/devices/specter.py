@@ -28,8 +28,8 @@ class SpecterClient(HardwareWalletClient):
     # timeout large enough to handle xpub derivations
     TIMEOUT = 30
 
-    def __init__(self, path: str, password: str = "", expert: bool = False) -> None:
-        super().__init__(path, password, expert)
+    def __init__(self, path: str, password: str = "", expert: bool = False, chain: Chain = Chain.MAIN) -> None:
+        super().__init__(path, password, expert, chain)
         self.simulator = ":" in path
         self.dev: Union[SpecterSimulator, SpecterUSBDevice]
         self.dev = SpecterSimulator(path) if self.simulator else SpecterUSBDevice(path)

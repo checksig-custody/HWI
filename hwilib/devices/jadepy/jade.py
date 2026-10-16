@@ -1982,7 +1982,7 @@ class JadeInterface:
         if device and JadeTCPImpl.isSupportedDevice(device):
             impl = JadeTCPImpl(device, timeout or DEFAULT_SERIAL_TIMEOUT)
         else:
-            impl = JadeSerialImpl(device or DEFAULT_SERIAL_DEVICE,
+            impl = JadeSerialImpl(device,
                                   baud or DEFAULT_BAUD_RATE,
                                   timeout or DEFAULT_SERIAL_TIMEOUT)
         return JadeInterface(impl)
