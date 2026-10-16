@@ -134,7 +134,7 @@ class SpecterClient(HardwareWalletClient):
         pass
 
 
-def enumerate(password: str = "", expert: bool = False, chain: Chain = Chain.MAIN):
+def enumerate(password: str = "", expert: bool = False, chain: Chain = Chain.MAIN, allow_emulators: bool = False):
     """
     Returns a list of detected Specter devices
     with their fingerprints and client's paths

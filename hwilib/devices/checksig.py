@@ -90,7 +90,7 @@ class ChecksigClient(HardwareWalletClient):
         return ExtendedKey.deserialize(xpub)
 
 
-def enumerate(password: str = "", expert: bool = False, chain: Chain = Chain.MAIN):
+def enumerate(password: str = "", expert: bool = False, chain: Chain = Chain.MAIN, allow_emulators: bool = False):
     results = []
 
     # Loop on the range port to check listening devices
