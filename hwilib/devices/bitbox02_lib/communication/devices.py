@@ -26,6 +26,11 @@ BB02BTC_BOOTLOADER = "bb02btc-bootloader"
 BITBOX02MULTI = "BitBox02"
 BITBOX02BTC = "BitBox02BTC"
 
+BITBOX02PLUS_MULTI_BOOTLOADER = "BitBox02 Nova Multi bl"
+BITBOX02PLUS_BTC_BOOTLOADER = "BitBox02 Nova BTC-only bl"
+BITBOX02PLUS_MULTI = "BitBox02 Nova Multi"
+BITBOX02PLUS_BTC = "BitBox02 Nova BTC-only"
+
 
 class TooManyFoundException(Exception):
     def __init__(self, count: int) -> None:
@@ -111,6 +116,8 @@ def get_any_bitbox02s() -> List[DeviceInfo]:
     """
     devices = get_bitbox02multi_devices()
     devices.extend(get_bitbox02btc_devices())
+    devices.extend(get_devices(BITBOX02PLUS_MULTI))
+    devices.extend(get_devices(BITBOX02PLUS_BTC))
     return devices
 
 
@@ -138,6 +145,8 @@ def get_any_bitbox02_bootloaders() -> List[DeviceInfo]:
     """
     devices = get_bitbox02multi_bootloaders()
     devices.extend(get_bitbox02btc_bootloaders())
+    devices.extend(get_devices(BITBOX02PLUS_MULTI_BOOTLOADER))
+    devices.extend(get_devices(BITBOX02PLUS_BTC_BOOTLOADER))
     return devices
 
 
@@ -157,9 +166,9 @@ def get_any_bitbox02_bootloader() -> DeviceInfo:
     return devices[0]
 
 
-def parse_device_version(serial_number: str) -> semver.VersionInfo:
-    match = re.search(r"v([0-9]+\.[0-9]+\.[0-9]+.*)", serial_number)
+def parse_device_version(version: str) -> semver.VersionInfo:
+    match = re.search(r"v([0-9]+\.[0-9]+\.[0-9]+.*)", version)
     if match is None:
-        raise Exception(f"Could not parse version string from serial_number: {serial_number}")
+        raise ValueError(f"Could not parse version string from string: {version}")
 
     return semver.VersionInfo.parse(match.group(1))

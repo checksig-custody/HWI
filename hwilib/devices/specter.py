@@ -28,8 +28,8 @@ class SpecterClient(HardwareWalletClient):
     # timeout large enough to handle xpub derivations
     TIMEOUT = 30
 
-    def __init__(self, path: str, password: str = "", expert: bool = False) -> None:
-        super().__init__(path, password, expert)
+    def __init__(self, path: str, password: str = "", expert: bool = False, chain: Chain = Chain.MAIN) -> None:
+        super().__init__(path, password, expert, chain)
         self.simulator = ":" in path
         self.dev: Union[SpecterSimulator, SpecterUSBDevice]
         self.dev = SpecterSimulator(path) if self.simulator else SpecterUSBDevice(path)
@@ -134,7 +134,7 @@ class SpecterClient(HardwareWalletClient):
         pass
 
 
-def enumerate(password: str = "", expert: bool = False, chain: Chain = Chain.MAIN):
+def enumerate(password: str = "", expert: bool = False, chain: Chain = Chain.MAIN, allow_emulators: bool = False):
     """
     Returns a list of detected Specter devices
     with their fingerprints and client's paths

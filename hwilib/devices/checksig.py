@@ -14,8 +14,8 @@ from hwilib.common import Chain
 
 
 class ChecksigClient(HardwareWalletClient):
-    def __init__(self, path: str, password: str = "", expert: bool = False) -> None:
-        super().__init__(path, password, expert)
+    def __init__(self, path: str, password: str = "", expert: bool = False, chain: Chain = Chain.MAIN) -> None:
+        super().__init__(path, password, expert, chain)
         # Used to know where to connect for this device
         self.port = int(path.split(":")[1])
 
@@ -90,7 +90,7 @@ class ChecksigClient(HardwareWalletClient):
         return ExtendedKey.deserialize(xpub)
 
 
-def enumerate(password: str = "", expert: bool = False, chain: Chain = Chain.MAIN):
+def enumerate(password: str = "", expert: bool = False, chain: Chain = Chain.MAIN, allow_emulators: bool = False):
     results = []
 
     # Loop on the range port to check listening devices

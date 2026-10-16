@@ -149,6 +149,7 @@ class KeepkeyClient(TrezorClient):
         """
         model = TrezorModel(
             name="K1-14M",
+            internal_name="keepkey",
             minimum_version=(0, 0, 0),
             vendors=("keepkey.com"),
             usb_ids=(), # unused
@@ -171,11 +172,12 @@ class KeepkeyClient(TrezorClient):
         return False
 
 
-def enumerate(password: Optional[str] = None, expert: bool = False, chain: Chain = Chain.MAIN) -> List[Dict[str, Any]]:
+def enumerate(password: Optional[str] = None, expert: bool = False, chain: Chain = Chain.MAIN, allow_emulators: bool = False) -> List[Dict[str, Any]]:
     results = []
     devs = hid.HidTransport.enumerate(usb_ids=KEEPKEY_HID_IDS)
     devs.extend(webusb.WebUsbTransport.enumerate(usb_ids=KEEPKEY_WEBUSB_IDS))
-    devs.extend(udp.UdpTransport.enumerate(KEEPKEY_SIMULATOR_PATH))
+    if allow_emulators:
+        devs.extend(udp.UdpTransport.enumerate(KEEPKEY_SIMULATOR_PATH))
     for dev in devs:
         d_data: Dict[str, Any] = {}
 

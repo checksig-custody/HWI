@@ -32,20 +32,26 @@ from ..communication import (
 
 from .secp256k1 import antiklepto_host_commit, antiklepto_verify
 
-from ..communication.generated import hww_pb2 as hww
-from ..communication.generated import eth_pb2 as eth
-from ..communication.generated import btc_pb2 as btc
-from ..communication.generated import cardano_pb2 as cardano
-from ..communication.generated import mnemonic_pb2 as mnemonic
-from ..communication.generated import bitbox02_system_pb2 as bitbox02_system
-from ..communication.generated import backup_commands_pb2 as backup
-from ..communication.generated import common_pb2 as common
-from ..communication.generated import keystore_pb2 as keystore
-from ..communication.generated import antiklepto_pb2 as antiklepto
+try:
+    from ..communication.generated import hww_pb2 as hww
+    from ..communication.generated import eth_pb2 as eth
+    from ..communication.generated import btc_pb2 as btc
+    from ..communication.generated import cardano_pb2 as cardano
+    from ..communication.generated import mnemonic_pb2 as mnemonic
+    from ..communication.generated import bitbox02_system_pb2 as bitbox02_system
+    from ..communication.generated import backup_commands_pb2 as backup
+    from ..communication.generated import common_pb2 as common
+    from ..communication.generated import keystore_pb2 as keystore
+    from ..communication.generated import antiklepto_pb2 as antiklepto
+    from ..communication.generated import bluetooth_pb2 as bluetooth
+    import google.protobuf.empty_pb2
 
-# pylint: disable=unused-import
-# We export it in __init__.py
-from ..communication.generated import system_pb2 as system
+    # pylint: disable=unused-import,ungrouped-imports
+    # We export it in __init__.py
+    from ..communication.generated import system_pb2 as system
+except ModuleNotFoundError:
+    print("Run `make py` to generate the protobuf messages")
+    sys.exit()
 
 try:
     # Optional rlp dependency only needed to sign ethereum transactions.
@@ -111,18 +117,31 @@ class BTCInputType(TypedDict):
 
 class BTCOutputInternal:
     # TODO: Use NamedTuple, but not playing well with protobuf types.
+    """
+    Internal transaction output (output belongs to BitBox).
+    """
 
-    def __init__(self, keypath: Sequence[int], value: int, script_config_index: int):
+    def __init__(
+        self,
+        keypath: Sequence[int],
+        value: int,
+        script_config_index: int,
+        output_script_config_index: Optional[int] = None,
+    ):
         """
         keypath: keypath to the change output.
         """
         self.keypath = keypath
         self.value = value
         self.script_config_index = script_config_index
+        self.output_script_config_index = output_script_config_index
 
 
 class BTCOutputExternal:
     # TODO: Use NamedTuple, but not playing well with protobuf types.
+    """
+    External transaction output.
+    """
 
     def __init__(self, output_type: "btc.BTCOutputType.V", output_payload: bytes, value: int):
         self.type = output_type
@@ -156,6 +175,14 @@ class BitBox02(BitBoxCommonAPI):
         }
         if self.version >= semver.VersionInfo(9, 6, 0):
             result["securechip_model"] = response.device_info.securechip_model
+        if response.device_info.bluetooth is not None:
+            result["bluetooth"] = {
+                "firmware_hash": response.device_info.bluetooth.firmware_hash,
+                "firmware_version": response.device_info.bluetooth.firmware_version,
+                "enabled": response.device_info.bluetooth.enabled,
+            }
+        else:
+            result["bluetooth"] = None
 
         return result
 
@@ -385,13 +412,14 @@ class BitBox02(BitBoxCommonAPI):
         version: int = 1,
         locktime: int = 0,
         format_unit: "btc.BTCSignInitRequest.FormatUnit.V" = btc.BTCSignInitRequest.FormatUnit.DEFAULT,
+        output_script_configs: Optional[Sequence[btc.BTCScriptConfigWithKeypath]] = None,
     ) -> Sequence[Tuple[int, bytes]]:
         """
         coin: the first element of all provided keypaths must match the coin:
         - BTC: 0 + HARDENED
         - Testnets: 1 + HARDENED
         - LTC: 2 + HARDENED
-        script_configs: types of all inputs and change outputs. The first element of all provided
+        script_configs: types of all inputs and outputs belonging to the same account (change or non-change). The first element of all provided
         keypaths must match this type:
         - SCRIPT_P2PKH: 44 + HARDENED
         - SCRIPT_P2WPKH_P2SH: 49 + HARDENED
@@ -402,6 +430,8 @@ class BitBox02(BitBoxCommonAPI):
         outputs: transaction outputs. Can be an external output
         (BTCOutputExternal) or an internal output for change (BTCOutputInternal).
         version, locktime: reserved for future use.
+        format_unit: defines in which unit amounts will be displayed
+        output_script_configs: script types for outputs belonging to the same keystore
         Returns: list of (input index, signature) tuples.
         Raises Bitbox02Exception with ERR_USER_ABORT on user abort.
         """
@@ -412,6 +442,10 @@ class BitBox02(BitBoxCommonAPI):
 
         if any(map(is_taproot, script_configs)):
             self._require_atleast(semver.VersionInfo(9, 10, 0))
+
+        if output_script_configs:
+            # Attaching output info supported since v9.22.0.
+            self._require_atleast(semver.VersionInfo(9, 22, 0))
 
         supports_antiklepto = self.version >= semver.VersionInfo(9, 4, 0)
 
@@ -428,6 +462,7 @@ class BitBox02(BitBoxCommonAPI):
                 num_outputs=len(outputs),
                 locktime=locktime,
                 format_unit=format_unit,
+                output_script_configs=output_script_configs,
             )
         )
         next_response = self._msg_query(request, expected_response="btc_sign_next").btc_sign_next
@@ -547,12 +582,16 @@ class BitBox02(BitBoxCommonAPI):
 
                 request = hww.Request()
                 if isinstance(tx_output, BTCOutputInternal):
+                    if tx_output.output_script_config_index is not None:
+                        # Attaching output info supported since v9.22.0.
+                        self._require_atleast(semver.VersionInfo(9, 22, 0))
                     request.btc_sign_output.CopyFrom(
                         btc.BTCSignOutputRequest(
                             ours=True,
                             value=tx_output.value,
                             keypath=tx_output.keypath,
                             script_config_index=tx_output.script_config_index,
+                            output_script_config_index=tx_output.output_script_config_index,
                         )
                     )
                 elif isinstance(tx_output, BTCOutputExternal):
@@ -583,6 +622,8 @@ class BitBox02(BitBoxCommonAPI):
         # pylint: disable=no-member
 
         self._require_atleast(semver.VersionInfo(9, 2, 0))
+        if coin in (btc.TBTC, btc.RBTC):
+            self._require_atleast(semver.VersionInfo(9, 23, 0))
 
         request = btc.BTCRequest()
         request.sign_message.CopyFrom(
@@ -643,16 +684,6 @@ class BitBox02(BitBoxCommonAPI):
         )
         self._msg_query(request, expected_response="success")
 
-    def remove_sdcard(self) -> None:
-        # pylint: disable=no-member
-        request = hww.Request()
-        request.insert_remove_sdcard.CopyFrom(
-            bitbox02_system.InsertRemoveSDCardRequest(
-                action=bitbox02_system.InsertRemoveSDCardRequest.REMOVE_CARD
-            )
-        )
-        self._msg_query(request, expected_response="success")
-
     def root_fingerprint(self) -> bytes:
         """
         Get the root fingerprint from the bitbox02
@@ -673,6 +704,40 @@ class BitBox02(BitBoxCommonAPI):
             keystore.ElectrumEncryptionKeyRequest(keypath=keypath)
         )
         return self._msg_query(request).electrum_encryption_key.key
+
+    def bip85_bip39(self) -> None:
+        """Invokes the BIP85-BIP39 workflow on the device"""
+        self._require_atleast(semver.VersionInfo(9, 18, 0))
+
+        # pylint: disable=no-member
+        request = hww.Request()
+        request.bip85.CopyFrom(
+            keystore.BIP85Request(
+                bip39=google.protobuf.empty_pb2.Empty(),
+            )
+        )
+        response = self._msg_query(request, expected_response="bip85").bip85
+        assert response.WhichOneof("app") == "bip39"
+
+    def bip85_ln(self) -> bytes:
+        """
+        Generates and returns a mnemonic for a hot Lightning wallet from the device using BIP-85.
+        """
+        self._require_atleast(semver.VersionInfo(9, 17, 0))
+
+        # Only account_number=0 is allowed for now.
+        account_number = 0
+
+        # pylint: disable=no-member
+        request = hww.Request()
+        request.bip85.CopyFrom(
+            keystore.BIP85Request(
+                ln=keystore.BIP85Request.AppLn(account_number=account_number),
+            )
+        )
+        response = self._msg_query(request, expected_response="bip85").bip85
+        assert response.WhichOneof("app") == "ln"
+        return response.ln
 
     def enable_mnemonic_passphrase(self) -> None:
         """
@@ -749,32 +814,29 @@ class BitBox02(BitBoxCommonAPI):
         )
         return self._eth_msg_query(request, expected_response="pub").pub.pub
 
-    def eth_sign(self, transaction: bytes, keypath: Sequence[int], chain_id: int = 1) -> bytes:
+    def eth_sign(
+        self,
+        transaction: bytes,
+        keypath: Sequence[int],
+        address_case: eth.ETHAddressCase.ValueType = eth.ETH_ADDRESS_CASE_MIXED,
+        chain_id: int = 1,
+    ) -> bytes:
         """
         transaction should be given as a full rlp encoded eth transaction.
         """
-        nonce, gas_price, gas_limit, recipient, value, data, _, _, _ = rlp.decode(transaction)
-        request = eth.ETHRequest()
         # pylint: disable=no-member
-        request.sign.CopyFrom(
-            eth.ETHSignRequest(
-                coin=self._eth_coin(chain_id),
-                chain_id=chain_id,
-                keypath=keypath,
-                nonce=nonce,
-                gas_price=gas_price,
-                gas_limit=gas_limit,
-                recipient=recipient,
-                value=value,
-                data=data,
-            )
-        )
 
-        supports_antiklepto = self.version >= semver.VersionInfo(9, 5, 0)
-        if supports_antiklepto:
+        is_eip1559 = transaction.startswith(b"\x02")
+
+        def handle_antiklepto(request: eth.ETHRequest) -> bytes:
             host_nonce = os.urandom(32)
+            if is_eip1559:
+                request.sign_eip1559.host_nonce_commitment.commitment = antiklepto_host_commit(
+                    host_nonce
+                )
+            else:
+                request.sign.host_nonce_commitment.commitment = antiklepto_host_commit(host_nonce)
 
-            request.sign.host_nonce_commitment.commitment = antiklepto_host_commit(host_nonce)
             signer_commitment = self._eth_msg_query(
                 request, expected_response="antiklepto_signer_commitment"
             ).antiklepto_signer_commitment.commitment
@@ -791,6 +853,66 @@ class BitBox02(BitBoxCommonAPI):
                 print("Antiklepto nonce verification PASSED")
 
             return signature
+
+        if is_eip1559:
+            self._require_atleast(semver.VersionInfo(9, 16, 0))
+            (
+                decoded_chain_id,
+                nonce,
+                priority_fee,
+                max_fee,
+                gas_limit,
+                recipient,
+                value,
+                data,
+                _,
+                _,
+                _,
+            ) = rlp.decode(transaction[1:])
+            decoded_chain_id_int = int.from_bytes(decoded_chain_id, byteorder="big")
+            if decoded_chain_id_int != chain_id:
+                raise Exception(
+                    f"chainID argument ({chain_id}) does not match chainID encoded in transaction ({decoded_chain_id_int})"
+                )
+            request = eth.ETHRequest()
+            # pylint: disable=no-member
+            request.sign_eip1559.CopyFrom(
+                eth.ETHSignEIP1559Request(
+                    chain_id=chain_id,
+                    keypath=keypath,
+                    nonce=nonce,
+                    max_priority_fee_per_gas=priority_fee,
+                    max_fee_per_gas=max_fee,
+                    gas_limit=gas_limit,
+                    recipient=recipient,
+                    value=value,
+                    data=data,
+                    address_case=address_case,
+                )
+            )
+            return handle_antiklepto(request)
+
+        nonce, gas_price, gas_limit, recipient, value, data, _, _, _ = rlp.decode(transaction)
+        request = eth.ETHRequest()
+        # pylint: disable=no-member
+        request.sign.CopyFrom(
+            eth.ETHSignRequest(
+                coin=self._eth_coin(chain_id),
+                chain_id=chain_id,
+                keypath=keypath,
+                nonce=nonce,
+                gas_price=gas_price,
+                gas_limit=gas_limit,
+                recipient=recipient,
+                value=value,
+                data=data,
+                address_case=address_case,
+            )
+        )
+
+        supports_antiklepto = self.version >= semver.VersionInfo(9, 5, 0)
+        if supports_antiklepto:
+            return handle_antiklepto(request)
 
         return self._eth_msg_query(request, expected_response="sign").sign.signature
 
@@ -945,7 +1067,10 @@ class BitBox02(BitBoxCommonAPI):
                 return value
             if typ.type == eth.ETHSignTypedMessageRequest.DataType.UINT:
                 if isinstance(value, str):
-                    value = int(value)
+                    if value[:2].lower() == "0x":
+                        value = int(value[2:], 16)
+                    else:
+                        value = int(value)
                 assert isinstance(value, int)
                 return value.to_bytes(typ.size, "big")
             if typ.type == eth.ETHSignTypedMessageRequest.DataType.INT:
@@ -1087,7 +1212,69 @@ class BitBox02(BitBoxCommonAPI):
     def cardano_sign_transaction(
         self, transaction: cardano.CardanoSignTransactionRequest
     ) -> cardano.CardanoSignTransactionResponse:
+        if transaction.tag_cbor_sets:
+            self._require_atleast(semver.VersionInfo(9, 22, 0))
         request = cardano.CardanoRequest(sign_transaction=transaction)
         return self._cardano_msg_query(
             request, expected_response="sign_transaction"
         ).sign_transaction
+
+    def _bluetooth_msg_query(
+        self, bluetooth_request: bluetooth.BluetoothRequest, expected_response: Optional[str] = None
+    ) -> bluetooth.BluetoothResponse:
+        """
+        Same as _msg_query, but one nesting deeper for bluetooth messages.
+        """
+        # pylint: disable=no-member
+        request = hww.Request()
+        request.bluetooth.CopyFrom(bluetooth_request)
+        bluetooth_response = self._msg_query(request, expected_response="bluetooth").bluetooth
+        if (
+            expected_response is not None
+            and bluetooth_response.WhichOneof("response") != expected_response
+        ):
+            raise Exception(
+                "Unexpected response: {}, expected: {}".format(
+                    bluetooth_response.WhichOneof("response"), expected_response
+                )
+            )
+        return bluetooth_response
+
+    def bluetooth_upgrade(self, firmware: bytes) -> None:
+        """
+        Install the given Bluetooth firmware.
+        """
+        # pylint: disable=no-member
+        request = bluetooth.BluetoothRequest()
+        request.upgrade_init.CopyFrom(
+            bluetooth.BluetoothUpgradeInitRequest(firmware_length=len(firmware))
+        )
+
+        response = self._bluetooth_msg_query(request)
+        while True:
+            response_type = response.WhichOneof("response")
+            if response_type == "request_chunk":
+                chunk_response = response.request_chunk
+                request = bluetooth.BluetoothRequest()
+                request.chunk.CopyFrom(
+                    bluetooth.BluetoothChunkRequest(
+                        data=firmware[
+                            chunk_response.offset : chunk_response.offset + chunk_response.length
+                        ]
+                    ),
+                )
+                response = self._bluetooth_msg_query(request)
+            elif response_type == "success":
+                break
+            else:
+                raise Exception(f"Unexpected response: f{response_type}")
+
+    def bluetooth_toggle_enabled(self) -> None:
+        """
+        Enable/disable Bluetooth in non-volatile storage
+        """
+        # pylint: disable=no-member
+        request = bluetooth.BluetoothRequest()
+        request.toggle_enabled.CopyFrom(bluetooth.BluetoothToggleEnabledRequest())
+
+        self._bluetooth_msg_query(request, expected_response="success")

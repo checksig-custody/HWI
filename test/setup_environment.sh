@@ -34,6 +34,10 @@ while [[ $# -gt 0 ]]; do
         build_jade=1
         shift
         ;;
+        --bitbox02)
+        build_bitbox02=1
+        shift
+        ;;
         --bitcoind)
         build_bitcoind=1
         shift
@@ -46,6 +50,7 @@ while [[ $# -gt 0 ]]; do
         build_ledger=1
         build_keepkey=1
         build_jade=1
+        build_bitbox02=1
         build_bitcoind=1
         shift
         ;;
@@ -59,10 +64,21 @@ set -ex
 mkdir -p work
 cd work
 
+# Pinned firmware versions
+TREZOR_VERSION="core/v2.9.6"
+BITBOX01_VERSION="v7.1.0"
+BITBOX02_VERSION="firmware/v9.24.0"
+KEEPKEY_VERSION="v7.10.0"
+SPECULOS_VERSION="v0.26.9"  # Requires Python >=3.10 (v0.25.11+)
+JADE_VERSION="1.0.36"
+
+# Keep COLDCARD_VERSION in sync with .github/actions/install-sim/action.yml
+COLDCARD_VERSION="2025-09-30T1238-v5.4.4"
+
 if [[ -n ${build_trezor_1} || -n ${build_trezor_t} ]]; then
     # Clone trezor-firmware if it doesn't exist, or update it if it does
     if [ ! -d "trezor-firmware" ]; then
-        git clone --recursive https://github.com/trezor/trezor-firmware.git
+        git clone --recursive --depth 1 --shallow-submodules --branch ${TREZOR_VERSION} https://github.com/trezor/trezor-firmware.git
         cd trezor-firmware
     else
         cd trezor-firmware
@@ -87,27 +103,33 @@ if [[ -n ${build_trezor_1} || -n ${build_trezor_t} ]]; then
     if [[ -n ${build_trezor_1} ]]; then
         # Build trezor one emulator. This is pretty fast, so rebuilding every time is ok
         # But there should be some caching that makes this faster
-        poetry install
+        uv sync
         cd legacy
         export EMULATOR=1 TREZOR_TRANSPORT_V1=1 DEBUG_LINK=1 HEADLESS=1
-        poetry run pip install protobuf==3.20.0
-        poetry run script/setup
-        poetry run script/cibuild
+        export CC=gcc-12
+        uv run script/setup
+        uv run script/cibuild
         # Delete any emulator.img file
         find . -name "emulator.img" -exec rm {} \;
         cd ..
     fi
 
     if [[ -n ${build_trezor_t} ]]; then
-        rustup update
-        rustup toolchain uninstall nightly
-        rustup toolchain install nightly
-        rustup default nightly
+        # Pin the Rust nightly to the one trezor-firmware ${TREZOR_VERSION} expects
+        # (see its shell.nix: rust-bin.nightly."2025-04-15"). The rolling "nightly"
+        # channel has drifted and newer nightlies reject the firmware's
+        # reexport_test_harness_main attribute with error E0658.
+        TREZOR_RUST_NIGHTLY="nightly-2025-04-15"
+        rustup toolchain install ${TREZOR_RUST_NIGHTLY}
+        rustup default ${TREZOR_RUST_NIGHTLY}
+        rustup component add rustfmt --toolchain ${TREZOR_RUST_NIGHTLY}
+        rustup component add rust-src --toolchain ${TREZOR_RUST_NIGHTLY}-x86_64-unknown-linux-gnu
         # Build trezor t emulator. This is pretty fast, so rebuilding every time is ok
         # But there should be some caching that makes this faster
-        poetry install
+        git am ../../data/trezor-t-build.patch
+        uv sync
         cd core
-        poetry run make build_unix
+        uv run make build_unix
         # Delete any emulator.img file
         find . -name "trezor.flash" -exec rm {} \;
         cd ..
@@ -119,7 +141,8 @@ if [[ -n ${build_coldcard} ]]; then
     # Clone coldcard firmware if it doesn't exist, or update it if it does
     coldcard_setup_needed=false
     if [ ! -d "firmware" ]; then
-        git clone --recursive https://github.com/Coldcard/firmware.git
+        # Note: cannot use --shallow-submodules because lwip submodule on git.savannah.gnu.org doesn't support it
+        git clone --recursive --depth 1 --branch ${COLDCARD_VERSION} https://github.com/Coldcard/firmware.git
         cd firmware
         coldcard_setup_needed=true
     else
@@ -148,6 +171,10 @@ if [[ -n ${build_coldcard} ]]; then
     pip install -r requirements.txt
     cd unix
     if [ "$coldcard_setup_needed" == true ] ; then
+        pushd ../external/micropython
+        # Apply Ubuntu 24.04 compiler warning fixes (included in ColdCard firmware v5.4.4+)
+        git apply ../../ubuntu24_mpy.patch
+        popd
         pushd ../external/micropython/mpy-cross/
         make
         popd
@@ -161,7 +188,7 @@ fi
 if [[ -n ${build_bitbox01} ]]; then
     # Clone digital bitbox firmware if it doesn't exist, or update it if it does
     if [ ! -d "mcu" ]; then
-        git clone --recursive https://github.com/digitalbitbox/mcu.git
+        git clone --recursive --branch ${BITBOX01_VERSION} https://github.com/digitalbitbox/mcu.git
         cd mcu
     else
         cd mcu
@@ -193,7 +220,7 @@ if [[ -n ${build_keepkey} ]]; then
     # Clone keepkey firmware if it doesn't exist, or update it if it does
     keepkey_setup_needed=false
     if [ ! -d "keepkey-firmware" ]; then
-        git clone --recursive https://github.com/keepkey/keepkey-firmware.git
+        git clone --recursive --depth 1 --shallow-submodules --branch ${KEEPKEY_VERSION} https://github.com/keepkey/keepkey-firmware.git
         cd keepkey-firmware
         keepkey_setup_needed=true
     else
@@ -228,7 +255,9 @@ if [[ -n ${build_keepkey} ]]; then
         git clean -ffdx
         git clone https://github.com/nanopb/nanopb.git -b nanopb-0.3.9.4
     fi
-    cd nanopb/generator/proto
+    cd nanopb
+    git am ../../../data/nanopb-deprecated-mode.patch
+    cd generator/proto
     make
     cd ../../../
     export PATH=$PATH:`pwd`/nanopb/generator
@@ -240,15 +269,11 @@ if [[ -n ${build_keepkey} ]]; then
 fi
 
 if [[ -n ${build_ledger} ]]; then
-    speculos_packages="construct flask-restful jsonschema mnemonic pyelftools pillow requests pytesseract"
-    poetry run pip install ${speculos_packages}
-    pip install ${speculos_packages}
     # Clone ledger simulator Speculos if it doesn't exist, or update it if it does
     if [ ! -d "speculos" ]; then
-        git clone --recursive https://github.com/LedgerHQ/speculos.git
-        cd speculos
+        git clone --recursive --depth 1 --shallow-submodules --branch ${SPECULOS_VERSION} https://github.com/LedgerHQ/speculos.git
     else
-        cd speculos
+        pushd speculos
         git fetch
 
         # Determine if we need to pull. From https://stackoverflow.com/a/3278427
@@ -262,12 +287,19 @@ if [[ -n ${build_ledger} ]]; then
         elif [ $LOCAL = $BASE ]; then
             git pull
         fi
+        popd
     fi
+
+    poetry run pip install -e ./speculos
+    pip install -e ./speculos
+
+    cd speculos
 
     # Build the simulator. This is cached, but it is also fast
     mkdir -p build
     cmake -Bbuild -S .
     make -C build/
+
     cd ..
 fi
 
@@ -277,7 +309,7 @@ if [[ -n ${build_jade} ]]; then
 
     # Clone Blockstream Jade firmware if it doesn't exist, or update it if it does
     if [ ! -d "jade" ]; then
-        git clone --recursive --branch master https://github.com/Blockstream/Jade.git ./jade
+        git clone --recursive --branch ${JADE_VERSION} https://github.com/Blockstream/Jade.git ./jade
         cd jade
     else
         cd jade
@@ -297,54 +329,10 @@ if [[ -n ${build_jade} ]]; then
         git submodule update --recursive --init
     fi
 
-    # Deduce the relevant versions of esp-idf and qemu to use
+    # Deduce the relevant version of esp-idf to use
     ESP_IDF_BRANCH=$(grep "ARG ESP_IDF_BRANCH=" Dockerfile | cut -d\= -f2)
     ESP_IDF_COMMIT=$(grep "ARG ESP_IDF_COMMIT=" Dockerfile | cut -d\= -f2)
-    ESP_QEMU_BRANCH=$(grep "ARG ESP_QEMU_BRANCH=" Dockerfile | cut -d\= -f2)
-    ESP_QEMU_COMMIT=$(grep "ARG ESP_QEMU_COMMIT=" Dockerfile | cut -d\= -f2)
     cd ..
-
-    # Build the qemu emulator if required
-
-    # If the directory exists, see if it is at the expected commit
-    # If not, remove the entire directory (it will be re-cloned below)
-    if [ -d "qemu" ]; then
-        cd qemu
-        LOCAL=$(git rev-parse @)
-        if [ $LOCAL = $ESP_QEMU_COMMIT ]; then
-            echo "esp-qemu up-to-date"
-            cd ..
-        else
-            cd ..
-            rm -fr qemu
-        fi
-    fi
-
-    # Clone the upstream if the directory does not exist
-    # Then build the emulator
-    if [ ! -d "qemu" ]; then
-        git clone --depth 1 --branch ${ESP_QEMU_BRANCH} --single-branch --recursive https://github.com/espressif/qemu.git ./qemu
-        cd qemu
-
-        git checkout ${ESP_QEMU_COMMIT}
-        git submodule update --recursive --init
-        ./configure \
-            --target-list=xtensa-softmmu \
-            --enable-gcrypt \
-            --disable-sanitizers \
-            --disable-strip \
-            --disable-user \
-            --disable-capstone \
-            --disable-vnc \
-            --disable-sdl \
-            --disable-gtk \
-            --enable-slirp \
-            --extra-cflags=-Wno-array-parameter
-        ninja -C build
-        cd ..
-    fi
-
-    # Build the esp-idf toolchain if required
 
     # We will install the esp-idf tools in a given location (otherwise defaults to user home dir)
     export IDF_TOOLS_PATH="$(pwd)/esp-idf-tools"
@@ -366,7 +354,7 @@ if [[ -n ${build_jade} ]]; then
     # Clone the upstream if the directory does not exist
     # Then build and install the tools
     if [ ! -d "esp-idf" ]; then
-        git clone --depth=1 --branch ${ESP_IDF_BRANCH} --single-branch --recursive https://github.com/espressif/esp-idf.git ./esp-idf
+        git clone --quiet --depth=1 --branch ${ESP_IDF_BRANCH} --single-branch --recursive --shallow-submodules https://github.com/espressif/esp-idf.git ./esp-idf
         cd esp-idf
 
         git checkout ${ESP_IDF_COMMIT}
@@ -387,6 +375,13 @@ if [[ -n ${build_jade} ]]; then
     # Export the tools
     . ./esp-idf/export.sh
 
+    # Install the emulator
+    idf_tools.py install qemu-xtensa
+    QEMU_EXE=$(find ${IDF_TOOLS_PATH} -type f -name qemu-system-xtensa)
+    QEMU_BIOS_DIR=$(dirname "${QEMU_EXE}")/../share/qemu
+    echo "Installed qemu emulator: ${QEMU_EXE}"
+    echo "Installed qemu bios files: ${QEMU_BIOS_DIR}"
+
     # Build Blockstream Jade firmware configured for the emulator
     cd jade
     rm -fr sdkconfig
@@ -405,12 +400,42 @@ if [[ -n ${build_jade} ]]; then
     # Extract the minimal artifacts required to run the emulator
     rm -fr simulator
     mkdir simulator
-    cp qemu/build/qemu-system-xtensa simulator/
-    cp -R qemu/pc-bios simulator/
+    cp ${QEMU_EXE} simulator/
+    cp -R ${QEMU_BIOS_DIR} simulator/pc-bios
     cp jade/main/qemu/flash_image.bin simulator/
     cp jade/main/qemu/qemu_efuse.bin simulator/
 
     cd ..
+fi
+
+if [[ -n ${build_bitbox02} ]]; then
+    # Clone digital bitbox02 firmware if it doesn't exist, or update it if it does
+    if [ ! -d "bitbox02-firmware" ]; then
+        git clone --recursive --branch ${BITBOX02_VERSION} https://github.com/BitBoxSwiss/bitbox02-firmware.git
+        cd bitbox02-firmware
+    else
+        cd bitbox02-firmware
+        git fetch
+
+        # Determine if we need to pull. From https://stackoverflow.com/a/3278427
+        UPSTREAM=${1:-'@{u}'}
+        LOCAL=$(git rev-parse @)
+        REMOTE=$(git rev-parse "$UPSTREAM")
+        BASE=$(git merge-base @ "$UPSTREAM")
+
+        if [ $LOCAL = $REMOTE ]; then
+            echo "Up-to-date"
+        elif [ $LOCAL = $BASE ]; then
+            git pull
+        fi
+    fi
+
+    # Build the simulator. This is cached, but it is also fast
+    CONTAINER_VERSION=$(cat .containerversion)
+    docker pull shiftcrypto/firmware_v2:$CONTAINER_VERSION
+    # The safe.directory config is so that git commands work. even though the repo folder mounted in
+    # Docker is owned by root, which can be different from the owner on the host.
+    docker run -i --rm --volume $(pwd):/bb02 shiftcrypto/firmware_v2:$CONTAINER_VERSION bash -c "git config --global --add safe.directory /bb02 && cd /bb02 && make -j simulator"
 fi
 
 if [[ -n ${build_bitcoind} ]]; then
@@ -441,11 +466,10 @@ if [[ -n ${build_bitcoind} ]]; then
 
     # Build bitcoind. This is super slow, but it is cached so it runs fairly quickly.
     pushd depends
-    make NO_QT=1 NO_QR=1 NO_ZMQ=1 NO_UPNP=1 NO_NATPMP=1
+    make -j $(nproc) NO_QT=1 NO_QR=1 NO_ZMQ=1 NO_UPNP=1 NO_NATPMP=1 NO_USDT=1
     popd
 
     # Do the build
-    ./autogen.sh
-    CONFIG_SITE=$PWD/depends/x86_64-pc-linux-gnu/share/config.site ./configure --with-incompatible-bdb --with-miniupnpc=no --without-gui --disable-zmq --disable-tests --disable-bench --with-libs=no --with-utils=no
-    make src/bitcoind
+    cmake -B build --toolchain depends/x86_64-pc-linux-gnu/toolchain.cmake -DBUILD_TESTS=OFF -DBUILD_BENCH=OFF
+    cmake --build build -j $(nproc) --target bitcoind
 fi

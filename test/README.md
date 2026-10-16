@@ -20,16 +20,19 @@ It also tests usage with `bitcoind`.
 - `test_jade.py` tests the command line interface and Blockstream Jade implementation.
 It uses the [Espressif fork of the Qemu emulator](https://github.com/espressif/qemu.git).
 It also tests usage with `bitcoind`.
+- `test_bitbox02.py` tests the command line interface and the BitBox02 implementation.
+It uses the [BitBox02 simulator](https://github.com/BitBoxSwiss/bitbox02-firmware/tree/master/test/simulator).
+It also tests usage with `bitcoind`.
 
-`setup_environment.sh` will build the Trezor emulator, the Coldcard simulator, the Keepkey emulator, the Digital Bitbox simulator, the Jade emulator, and `bitcoind`.
-if run in the `test/` directory, these will be built in `work/test/trezor-firmware`, `work/test/firmware`, `work/test/keepkey-firmware`, `work/test/mcu`, and `work/test/bitcoin` respectively.
+`setup_environment.sh` will build the Trezor emulator, the Coldcard simulator, the Keepkey emulator, the Digital Bitbox simulator, the Jade emulator, the BitBox02 simulator and `bitcoind`.
+if run in the `test/` directory, these will be built in `work/test/trezor-firmware`, `work/test/firmware`, `work/test/keepkey-firmware`, `work/test/mcu`, `work/test/bitbox02-firmware` and `work/test/bitcoin` respectively.
 In order to build each simulator/emulator, you will need to use command line arguments.
-These are `--trezor-1`, `--trezor-t`, `--coldcard`, `--keepkey`, `--bitbox01`, `--jade`, and `--bitcoind`.
+These are `--trezor-1`, `--trezor-t`, `--coldcard`, `--keepkey`, `--bitbox01`, `--jade`, `--bitbox02` and `--bitcoind`.
 If an environment variable is not present or not set, then the simulator/emulator or bitcoind that it guards will not be built.
 
-`run_tests.py` runs the tests. If run from the `test/` directory, it will be able to find the Trezor emulator, Coldcard simulator, Keepkey emulator, Digital Bitbox simulator, Jade emulator, and bitcoind.
+`run_tests.py` runs the tests. If run from the `test/` directory, it will be able to find the Trezor emulator, Coldcard simulator, Keepkey emulator, Digital Bitbox simulator, Jade emulator, BitBox02 simulator and bitcoind.
 Otherwise the paths to those will need to be specified on the command line.
-`test_trezor.py`, `test_coldcard.py`, `test_keepkey.py`, `test_jade.py`, and `test/test_digitalbitbox.py` can be disabled.
+`test_trezor.py`, `test_coldcard.py`, `test_keepkey.py`, `test_jade.py`, `test_bitbox02.py` and `test/test_digitalbitbox.py` can be disabled.
 
 If you are building the Trezor emulator, the Coldcard simulator, the Keepkey emulator, the Jade emulator, the Digital Bitbox simulator, and `bitcoind` without `setup_environment.sh`, then you will need to make `work/` inside of `test/`.
 
@@ -46,7 +49,7 @@ $ cd work
 In order to build the Trezor emulator, the following packages will need to be installed:
 
 ```
-build-essential curl git python3 python3-pip libsdl2-dev libsdl2-image-dev gcc-arm-none-eabi libnewlib-arm-none-eabi gcc-multilib
+build-essential curl git python3 python3-pip libsdl2-dev libsdl2-image-dev gcc-arm-none-eabi libnewlib-arm-none-eabi gcc-multilib protobuf-compiler clang
 ```
 
 The python packages can be installed with
@@ -83,7 +86,7 @@ In order to build the Coldcard simulator, the following packages will need to be
 build-essential git python3 python3-pip libudev-dev gcc-arm-none-eabi
 ```
 
-After cloninig the Coldcard repo into this testing folder, the python packages can be installed with:
+After cloning the Coldcard repo into this testing folder, the python packages can be installed with:
 
 ```
 pip install -r ckcc_firmware/requirements.txt
@@ -276,6 +279,103 @@ $ cp jade/main/qemu/flash_image.bin simulator/
 $ cp jade/main/qemu/qemu_efuse.bin simulator/
 $ cd ..
 ```
+
+## Ledger emulator
+
+### Dependencies
+
+In order to build the Ledger emulator, the following packages will need to be installed:
+
+```
+cmake gcc-arm-linux-gnueabihf libc6-dev-armhf-cross gdb-multiarch qemu-user-static
+```
+
+The python packages can be installed with
+
+```
+pip install construct flask-cors flask-restful jsonschema mnemonic pyelftools pillow requests
+```
+
+### Building
+
+Clone the repository:
+
+```
+$ git clone --recursive https://github.com/LedgerHQ/speculos.git
+```
+
+Build the emulator:
+
+```
+$ cmake -Bbuild -H.
+$ make -C build/
+```
+
+### Automation rules
+
+The Ledger tests drive the emulator's buttons with
+`data/speculos-automation.json`. Speculos matches each rule against every
+text fragment drawn on the screen, so beware of this pitfall when editing
+it: screens can contain randomly generated base58 addresses, wrapped over
+several lines, and a rule matching a short word can accidentally match a
+wrapped address line. The resulting extra button press derails the rest of
+the flow. This happened with a rule for the "To" screen title when an
+address ended in "To". Keep rules multi-word where possible, or pin them to
+the title row with `"y": 3` like the "To" rule.
+
+## Coldcard emulator
+
+Clone the repository:
+
+```
+git clone --recursive https://github.com/Coldcard/firmware.git
+```
+
+### Dependencies
+
+In order to build the Coldcard emulator, the following packages will need to be installed:
+
+```
+build-essential git python3 python3-pip libudev-dev gcc-arm-none-eabi libffi-dev xterm swig libpcsclite-dev
+```
+You also have to install its python dependencies
+
+```
+pip install -r requirements.txt
+```
+
+## BitBox02 Simulator
+
+### Dependencies
+
+In order to build the BitBox02 simulator, the following packages will need to be installed:
+
+```
+apt install docker.io
+```
+
+### Building
+
+Clone the repository:
+
+```
+git clone --recursive https://github.com/BitBoxSwiss/bitbox02-firmware.git
+```
+
+Pull the BitBox02 firmware Docker image:
+
+```
+cd bitbox02-firmware
+make dockerpull
+```
+
+Build the simulator:
+
+```
+make dockerdev
+make simulator
+```
+
 
 ## Bitcoin Core
 

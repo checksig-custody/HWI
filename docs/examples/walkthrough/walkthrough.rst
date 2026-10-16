@@ -7,7 +7,7 @@ together with a Bitcoin Core Wallet. As hardware wallet example we have used a T
 Create a watch-only Bitcoin Core wallet for Trezor
 ==================================================
 
-Create your watch-only Bitcoin Core Wallet as described in `Using Bitcoin Core with Hardware Wallets <../bitcoin-core-usage.rst>`_. 
+Create your watch-only Bitcoin Core Wallet as described in `Using Bitcoin Core with Hardware Wallets <../bitcoin-core-usage.html>`_.
 You find all the details well described in this link. But in summary, one opens a terminal and runs ``bitcoind``. E.g.
 
 ::
@@ -178,11 +178,11 @@ Send funds with Bitcoin Core and Trezor using HWI
 
 * HWI: close HWI GUI
 * CORE: close Core wallet
-* you are done! Pad yourself on the shoulder ;)
+* you are done! Pat yourself on the shoulder ;)
 
 Versions Used
 =============
 
-* This walk-trough was done in January 2021
+* This walkthrough was done in January 2021
 * HWI version 2.0.0-dev
 * Bitcoin 0.21.0

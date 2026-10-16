@@ -39,6 +39,7 @@ from .ledger_bitcoin.client import (
     LegacyClient,
     TransportClient,
 )
+from .ledger_bitcoin.client_base import ApduException
 from .ledger_bitcoin.exception import NotSupportedError
 from .ledger_bitcoin.wallet import (
     MultisigWallet,
@@ -75,7 +76,10 @@ LEDGER_VENDOR_ID = 0x2c97
 LEDGER_MODEL_IDS = {
     0x10: "ledger_nano_s",
     0x40: "ledger_nano_x",
-    0x50: "ledger_nano_s_plus"
+    0x50: "ledger_nano_s_plus",
+    0x60: "ledger_stax",
+    0x70: "ledger_flex",
+    0x80: "ledger_nano_gen5"
 }
 LEDGER_LEGACY_PRODUCT_IDS = {
     0x0001: "ledger_nano_s",
@@ -118,6 +122,18 @@ signing_priority = {
     AddressType.LEGACY: 3,
 }
 
+def handle_chip_exception(e: Union[BTChipException, ApduException], func_name: str) -> bool:
+    if e.sw in bad_args:
+        raise BadArgumentError('Bad argument')
+    elif e.sw == 0x6F00: # BTCHIP_SW_TECHNICAL_PROBLEM
+        raise DeviceFailureError(e.message)
+    elif e.sw == 0x6FAA: # BTCHIP_SW_HALTED
+        raise DeviceConnectionError('Device is asleep')
+    elif e.sw in cancels:
+        raise ActionCanceledError('{} canceled'.format(func_name))
+    else:
+        raise e
+
 def ledger_exception(f: Callable[..., Any]) -> Any:
     @wraps(f)
     def func(*args: Any, **kwargs: Any) -> Any:
@@ -126,16 +142,10 @@ def ledger_exception(f: Callable[..., Any]) -> Any:
         except ValueError as e:
             raise BadArgumentError(str(e))
         except BTChipException as e:
-            if e.sw in bad_args:
-                raise BadArgumentError('Bad argument')
-            elif e.sw == 0x6F00: # BTCHIP_SW_TECHNICAL_PROBLEM
-                raise DeviceFailureError(e.message)
-            elif e.sw == 0x6FAA: # BTCHIP_SW_HALTED
-                raise DeviceConnectionError('Device is asleep')
-            elif e.sw in cancels:
-                raise ActionCanceledError('{} canceled'.format(f.__name__))
-            else:
-                raise e
+            handle_chip_exception(e, f.__name__)
+        except ApduException as e:
+            e.message = e.data.decode("utf-8")
+            handle_chip_exception(e, f.__name__)
     return func
 
 # This class extends the HardwareWalletClient for Ledger Nano S and Nano X specific things
@@ -199,9 +209,9 @@ class LedgerClient(HardwareWalletClient):
             wallet = WalletPolicy("", "wpkh(@0/**)", [""])
             legacy_input_sigs = client.sign_psbt(tx, wallet, None)
 
-            for idx, pubkey, sig in legacy_input_sigs:
+            for idx, partial_sig in legacy_input_sigs:
                 psbt_in = tx.inputs[idx]
-                psbt_in.partial_sigs[pubkey] = sig
+                psbt_in.partial_sigs[partial_sig.pubkey] = partial_sig.signature
             return tx
 
         if isinstance(self.client, LegacyClient):
@@ -339,7 +349,7 @@ class LedgerClient(HardwareWalletClient):
 
             input_sigs = self.client.sign_psbt(psbt2, wallet, wallet_hmac)
 
-            for idx, pubkey, sig in input_sigs:
+            for idx, yielded in input_sigs:
                 psbt_in = psbt2.inputs[idx]
 
                 utxo = None
@@ -353,11 +363,13 @@ class LedgerClient(HardwareWalletClient):
                 is_wit, wit_ver, _ = utxo.is_witness()
 
                 if is_wit and wit_ver >= 1:
-                    # TODO: Deal with script path signatures
-                    # For now, assume key path signature
-                    psbt_in.tap_key_sig = sig
+                    if yielded.tapleaf_hash is None:
+                        psbt_in.tap_key_sig = yielded.signature
+                    else:
+                        psbt_in.tap_script_sigs[(yielded.pubkey, yielded.tapleaf_hash)] = yielded.signature
+
                 else:
-                    psbt_in.partial_sigs[pubkey] = sig
+                    psbt_in.partial_sigs[yielded.pubkey] = yielded.signature
 
         # Extract the sigs from psbt2 and put them into tx
         for sig_in, psbt_in in zip(psbt2.inputs, tx.inputs):
@@ -539,11 +551,12 @@ class LedgerClient(HardwareWalletClient):
         return isinstance(self.client, NewClient)
 
 
-def enumerate(password: Optional[str] = None, expert: bool = False, chain: Chain = Chain.MAIN) -> List[Dict[str, Any]]:
+def enumerate(password: Optional[str] = None, expert: bool = False, chain: Chain = Chain.MAIN, allow_emulators: bool = False) -> List[Dict[str, Any]]:
     results = []
     devices = []
     devices.extend(hid.enumerate(LEDGER_VENDOR_ID, 0))
-    devices.append({'path': SIMULATOR_PATH.encode(), 'interface_number': 0, 'product_id': 0x1000})
+    if allow_emulators:
+        devices.append({'path': SIMULATOR_PATH.encode(), 'interface_number': 0, 'product_id': 0x1000})
 
     for d in devices:
         if ('interface_number' in d and d['interface_number'] == 0

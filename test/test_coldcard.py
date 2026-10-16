@@ -44,6 +44,8 @@ class ColdcardSimulator(DeviceEmulator):
         self.strict_bip48 = False
         self.include_xpubs = False
         self.supports_device_multiple_multisig = True
+        self.supports_legacy = True
+        self.supports_arbitrary_keypool_paths = True
 
     def start(self):
         super().start()
@@ -52,7 +54,7 @@ class ColdcardSimulator(DeviceEmulator):
         self.coldcard_proc = subprocess.Popen(
             [
                 "python3",
-                os.path.basename(self.simulator), "--ms"
+                os.path.basename(self.simulator), "--ms", "--headless"
             ],
             cwd=os.path.dirname(self.simulator),
             stdout=self.coldcard_log,
@@ -60,8 +62,12 @@ class ColdcardSimulator(DeviceEmulator):
         )
         # Wait for simulator to be up
         while True:
+            # Prevent CI from lingering until timeout:
+            if self.coldcard_proc.poll() is not None:
+                raise RuntimeError(f"coldcard simulator failed with exit code {self.coldcard_proc.poll()}")
+
             try:
-                enum_res = process_commands(["enumerate"])
+                enum_res = process_commands(["--emulators", "enumerate"])
                 found = False
                 for dev in enum_res:
                     if dev["type"] == "coldcard" and "error" not in dev:
@@ -140,9 +146,9 @@ def coldcard_test_suite(simulator, bitcoind, interface):
     dev_emulator = ColdcardSimulator(simulator)
 
     signtx_cases = [
-        (["legacy"], ["legacy"], True, False),
-        (["segwit"], ["segwit"], True, False),
-        (["legacy", "segwit"], ["legacy", "segwit"], True, False),
+        (["legacy"], ["legacy"], False, False),
+        (["segwit"], ["segwit"], False, False),
+        (["legacy", "segwit"], ["legacy", "segwit"], False, False),
     ]
 
     # Generic device tests

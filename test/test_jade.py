@@ -24,7 +24,7 @@ from test_device import (
 from hwilib.devices.jadepy.jade import JadeAPI
 
 USE_SIMULATOR = True
-JADE_PATH = 'tcp:127.0.0.1:30121' if USE_SIMULATOR else '/dev/ttyUSB0'
+JADE_PATH = 'tcp:127.0.0.1:30121' if USE_SIMULATOR else None # None -> should search and find plugged unit
 TEST_SEED = bytes.fromhex('b90e532426d0dc20fffe01037048c018e940300038b165c211915c672e07762c')
 
 LOGGING = None  # logging.INFO
@@ -52,6 +52,8 @@ class JadeEmulator(DeviceEmulator):
         self.strict_bip48 = False
         self.include_xpubs = False
         self.supports_device_multiple_multisig = True
+        self.supports_legacy = True
+        self.supports_arbitrary_keypool_paths = True
 
     def start(self):
         super().start()
@@ -79,8 +81,16 @@ class JadeEmulator(DeviceEmulator):
             )
             time.sleep(5)
 
-            # Wait for emulator to be up
+            # Wait for emulator to be up (max 5 minutes)
+            MAX_STARTUP_TIME = 300
+            start_time = time.time()
             while True:
+                # Prevent CI from lingering until timeout:
+                if time.time() - start_time > MAX_STARTUP_TIME:
+                    raise RuntimeError("Jade simulator startup timed out after 5 minutes")
+                if self.emulator_proc.poll() is not None:
+                    raise RuntimeError(f"Jade simulator failed with exit code {self.emulator_proc.poll()}")
+
                 time.sleep(1)
                 try:
                     # Try to connect and set the test seed
@@ -214,6 +224,11 @@ class TestJadeGetMultisigAddresses(DeviceTestCase):
         result = self.do_command(self.dev_args + ['displayaddress', descriptor_param])
         self.assertEqual(result['address'], '2NAXBEePa5ebo1zTDrtQ9C21QDkkamwczfQ', result)
 
+class TestJadeSignTx(TestSignTx):
+    # disable big psbt as jade simulator can't handle it
+    def test_big_tx(self):
+        pass
+
 def jade_test_suite(emulator, bitcoind, interface):
     dev_emulator = JadeEmulator(emulator)
 
@@ -233,7 +248,7 @@ def jade_test_suite(emulator, bitcoind, interface):
     suite.addTest(DeviceTestCase.parameterize(TestDisplayAddress, bitcoind, emulator=dev_emulator, interface=interface))
     suite.addTest(DeviceTestCase.parameterize(TestJadeGetMultisigAddresses, bitcoind, emulator=dev_emulator, interface=interface))
     suite.addTest(DeviceTestCase.parameterize(TestSignMessage, bitcoind, emulator=dev_emulator, interface=interface))
-    suite.addTest(DeviceTestCase.parameterize(TestSignTx, bitcoind, emulator=dev_emulator, interface=interface, signtx_cases=signtx_cases))
+    suite.addTest(DeviceTestCase.parameterize(TestJadeSignTx, bitcoind, emulator=dev_emulator, interface=interface, signtx_cases=signtx_cases))
 
     result = unittest.TextTestRunner(stream=sys.stdout, verbosity=2).run(suite)
     return result.wasSuccessful()

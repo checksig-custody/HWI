@@ -1,0 +1,86 @@
+name: Install Sim
+description: Fetch and install simulator.
+inputs:
+  device:
+    description: A tested device name
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.device == 'ledger-legacy' && 'ledger' || inputs.device }}-sim
+
+    - if: startsWith(inputs.device, 'trezor-')
+      shell: bash
+      run: |
+        apt-get update
+        apt-get install -y libsdl2-image-2.0-0 libusb-1.0-0
+        tar -xvf trezor-firmware.tar.gz
+
+    - if: inputs.device == 'coldcard'
+      shell: bash
+      run: |
+        apt-get update
+        apt-get install -y libpcsclite-dev libusb-1.0-0 swig
+
+        # Extract the archive - this includes the full firmware directory
+        tar -xvf coldcard-firmware.tar.gz
+
+        poetry run pip install -r test/work/firmware/requirements.txt
+        pip install -r test/work/firmware/requirements.txt
+        poetry run pip install pysdl2-dll
+        pip install pysdl2-dll
+
+    - if: inputs.device == 'bitbox01'
+      shell: bash
+      run: |
+        apt-get update
+        apt-get install -y libusb-1.0-0
+        tar -xvf mcu.tar.gz
+
+    - if: inputs.device == 'bitbox02'
+      shell: bash
+      run: |
+        apt-get update
+        apt-get install -y libusb-1.0-0 docker.io
+        tar -xvf bitbox02.tar.gz
+
+    - if: inputs.device == 'jade'
+      shell: bash
+      run: |
+        apt-get update
+        apt-get install -y libgcrypt20 libsdl2-dev libslirp0 libusb-1.0-0
+        tar -xvf jade.tar.gz
+
+    - if: startsWith(inputs.device, 'ledger')
+      shell: bash
+      run: |
+        apt-get update
+        apt-get install -y libusb-1.0-0 qemu-user-static
+        tar -xvf speculos.tar.gz
+        poetry run pip install -e test/work/speculos
+        pip install -e test/work/speculos
+
+    - if: startsWith(inputs.device, 'ledger')
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.device == 'ledger-legacy' && 'ledger_app_legacy' || 'ledger_app' }}
+
+
+    - if: inputs.device == 'ledger'
+      shell: bash
+      run: |
+        mv app.elf test/work/speculos/apps/btc-test.elf
+
+    - if: inputs.device == 'ledger-legacy'
+      shell: bash
+      run: |
+        mv app.elf test/work/speculos/apps/btc-test-legacy.elf
+
+    - if: inputs.device == 'keepkey'
+      shell: bash
+      run: |
+        apt-get update
+        apt-get install -y libusb-1.0-0
+        tar -xvf keepkey-firmware.tar.gz
